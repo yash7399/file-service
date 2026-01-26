@@ -1,0 +1,41 @@
+2026-01-13 11:01:51,326 [pool-2-thread-1] INFO  ApplicationRunner - Department execution started:Inspection
+2026-01-13 11:01:51,326 [pool-2-thread-2] INFO  ApplicationRunner - Department execution started:Enforcement
+2026-01-13 11:01:51,983 [pool-2-thread-2] INFO  NASConnection - NSE connected successfully 
+2026-01-13 11:01:51,990 [pool-2-thread-1] INFO  NASConnection - NSE connected successfully 
+2026-01-13 11:01:52,201 [pool-2-thread-2] INFO  PacketEncryptor - Initialized PacketEncryptor with Cipher << AES_128_GCM >>
+2026-01-13 11:01:52,205 [pool-2-thread-2] INFO  Connection - Successfully connected to: 172.29.3.27
+2026-01-13 11:01:52,238 [pool-2-thread-2] WARN  Connection - There are no credits left to send SMB2_SESSION_SETUP, will block until there are more credits available.
+2026-01-13 11:01:52,280 [pool-2-thread-2] WARN  Connection - There are no credits left to send SMB2_SESSION_SETUP, will block until there are more credits available.
+2026-01-13 11:01:52,300 [pool-2-thread-1] INFO  SMBSessionBuilder - Successfully authenticated karans on 172.29.3.27, session is 180363057956481
+2026-01-13 11:01:52,300 [pool-2-thread-1] INFO  NASConnection - Connected to DC NAS successfully!
+2026-01-13 11:01:52,301 [pool-2-thread-1] INFO  Session - Connecting to \\172.29.3.27\nseit on session 180363057956481
+2026-01-13 11:01:52,309 [pool-2-thread-2] INFO  SMBSessionBuilder - Successfully authenticated karans on 172.29.3.27, session is 180413590929517
+2026-01-13 11:01:52,310 [pool-2-thread-2] INFO  NASConnection - Connected to DC NAS successfully!
+2026-01-13 11:01:52,310 [pool-2-thread-2] INFO  Session - Connecting to \\172.29.3.27\nseit on session 180413590929517
+2026-01-13 11:01:52,352 [pool-2-thread-1] INFO  File_Transfer_Test - Missing or failed to transfer MIS_Bank_Account_NSE_NCDEX_04012026.csv
+2026-01-13 11:01:52,362 [pool-2-thread-1] INFO  File_Transfer_Test - Missing or failed to transfer MIC_Bank_Account_NSE_NCDEX_06012026.csv
+2026-01-13 11:01:52,475 [pool-2-thread-1] INFO  Trigger - Trigger file created at: yash shukla/NSE Files{}
+2026-01-13 11:01:52,496 [pool-2-thread-2] INFO  File_Transfer_Test - AdvertisementMis_05012026.csv downloaded locally to  C:\Users\int30\eclipse-workspace\Sft\localFiles\AdvertisementMis_05012026.csv
+2026-01-13 11:01:52,512 [pool-2-thread-1] INFO  ApplicationRunner - Sucessfully created trigger file for Inspection
+2026-01-13 11:01:52,512 [pool-2-thread-1] INFO  ApplicationRunner - Department execution started:Membership
+2026-01-13 11:01:52,512 [pool-2-thread-1] INFO  Session - Connecting to \\172.29.3.27\nseit on session 180363057956481
+2026-01-13 11:01:52,549 [pool-2-thread-2] INFO  File_Transfer_Test - Uploaded to SMB: /yash shukla\AdvertisementMis_05012026.csv
+2026-01-13 11:01:52,561 [pool-2-thread-2] INFO  File_Transfer_Test - Deleted local temp file: C:\Users\int30\eclipse-workspace\Sft\localFiles\AdvertisementMis_05012026.csv
+2026-01-13 11:01:52,562 [pool-2-thread-2] INFO  File_Transfer_Test - AdvertisementMis_05012026.csv Transfered sucessfully
+2026-01-13 11:01:52,646 [pool-2-thread-2] INFO  Trigger - Trigger file created at: yash shukla/NSE Files{}
+2026-01-13 11:01:52,669 [pool-2-thread-2] INFO  ApplicationRunner - Sucessfully created trigger file for Enforcement
+2026-01-13 11:01:52,678 [pool-2-thread-1] INFO  File_Transfer_Test - Annual_Returns_Corporate03012026_01.xlsx downloaded locally to  C:\Users\int30\eclipse-workspace\Sft\localFiles\Annual_Returns_Corporate03012026_01.xlsx
+2026-01-13 11:01:52,709 [pool-2-thread-1] INFO  File_Transfer_Test - Uploaded to SMB: /yash shukla\Annual_Returns_Corporate03012026_01.xlsx
+2026-01-13 11:01:52,723 [pool-2-thread-1] INFO  File_Transfer_Test - Deleted local temp file: C:\Users\int30\eclipse-workspace\Sft\localFiles\Annual_Returns_Corporate03012026_01.xlsx
+2026-01-13 11:01:52,724 [pool-2-thread-1] INFO  File_Transfer_Test - Annual_Returns_Corporate03012026_01.xlsx Transfered sucessfully
+2026-01-13 11:01:52,805 [pool-2-thread-1] INFO  File_Transfer_Test - Annual_Returns_Corporate03012026_02.xlsx downloaded locally to  C:\Users\int30\eclipse-workspace\Sft\localFiles\Annual_Returns_Corporate03012026_02.xlsx
+2026-01-13 11:01:52,830 [pool-2-thread-1] INFO  File_Transfer_Test - Uploaded to SMB: /yash shukla\Annual_Returns_Corporate03012026_02.xlsx
+2026-01-13 11:01:52,843 [pool-2-thread-1] INFO  File_Transfer_Test - Deleted local temp file: C:\Users\int30\eclipse-workspace\Sft\localFiles\Annual_Returns_Corporate03012026_02.xlsx
+2026-01-13 11:01:52,843 [pool-2-thread-1] INFO  File_Transfer_Test - Annual_Returns_Corporate03012026_02.xlsx Transfered sucessfully
+2026-01-13 11:01:52,905 [pool-2-thread-1] INFO  File_Transfer_Test - Annual_Returns_Corporate03012026_03.xlsx downloaded locally to  C:\Users\int30\eclipse-workspace\Sft\localFiles\Annual_Returns_Corporate03012026_03.xlsx
+2026-01-13 11:01:52,928 [pool-2-thread-1] INFO  File_Transfer_Test - Uploaded to SMB: /yash shukla\Annual_Returns_Corporate03012026_03.xlsx
+2026-01-13 11:01:52,944 [pool-2-thread-1] INFO  File_Transfer_Test - Deleted local temp file: C:\Users\int30\eclipse-workspace\Sft\localFiles\Annual_Returns_Corporate03012026_03.xlsx
+2026-01-13 11:01:52,945 [pool-2-thread-1] INFO  File_Transfer_Test - Annual_Returns_Corporate03012026_03.xlsx Transfered sucessfully
+2026-01-13 11:01:53,015 [pool-2-thread-1] INFO  Trigger - Trigger file created at: yash shukla/Common portal -NSE/Submission from NSE{}
+2026-01-13 11:01:53,047 [pool-2-thread-1] INFO  ApplicationRunner - Sucessfully created trigger file for Membership
+2026-01-13 11:01:53,052 [restartedMain] INFO  ApplicationRunner - *********** APPLICATION FINISHED ***********

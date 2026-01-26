@@ -1,0 +1,15 @@
+Dear Member,
+
+
+This is to inform you that files for the ${batchDate}, could not be copied due to files not present.
+
+The list of files is mentioned below:
+
+${failureFiles}
+
+The list of files which transferred successfully is mention below:
+
+${successFiles}
+
+Regards,
+Dev Team

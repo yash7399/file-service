@@ -1,0 +1,14 @@
+com\example\sft\templates\Templates.class
+com\example\sft\config\DepartmentConfig.class
+com\example\sft\SftpConnectionPrivateKey.class
+com\example\sft\SftpRunner.class
+com\example\sft\FileTransferTest.class
+com\example\sft\config\FileConfig.class
+com\example\sft\SmbConnection.class
+com\example\sft\Util.class
+com\example\sft\Prop.class
+com\example\sft\constants\GlobalConstants.class
+com\example\sft\FinalTransfer.class
+com\example\sft\Emails.class
+com\example\sft\ConnectionManager.class
+com\example\sft\SftpConnection.class

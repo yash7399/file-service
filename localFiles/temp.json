@@ -1,0 +1,19 @@
+{
+
+	"department":{
+		"Inspection":{
+		
+			"01":[
+  {
+    "filename": "MIS_Bank_Account_NSE_NCDEX_DDMMYYYY.csv",
+    "source": "/olsapplv2/mnt/appln/Inspection/NCDEX/Output_Folder/Bank_Accounts",
+    "share": "nseit",
+    "destination": "/yash shukla/File_Transfer_Test/Inspection",
+    "time": 1
+  }
+]
+		}
+		
+	}
+	
+}

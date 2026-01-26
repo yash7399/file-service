@@ -1,0 +1,7 @@
+Dear Member,
+
+
+This is to inform you that files for the ${batchDate}, could not be copied due connection failure or connection not established.
+
+Regards,
+Dev Team
