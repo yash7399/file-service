@@ -1,19 +1,130 @@
-{
+private void copyFile(ChannelSftp sftp, String connectionCode, DiskShare share, String smbShareName, String fileName, String sftpFilePath,
+			String destinationPath, int time, String department, Map<String, List<String>> missingFiles,
+			Map<String, List<String>> transferedFiles) throws SftpException, IOException{
 
-	"department":{
-		"Inspection":{
-		
-			"01":[
-  {
-    "filename": "MIS_Bank_Account_NSE_NCDEX_DDMMYYYY.csv",
-    "source": "/olsapplv2/mnt/appln/Inspection/NCDEX/Output_Folder/Bank_Accounts",
-    "share": "nseit",
-    "destination": "/yash shukla/File_Transfer_Test/Inspection",
-    "time": 1
-  }
-]
+		String[] folders = destinationPath.split("/");
+		String currentPath = "";
+		for (String folder : folders) {
+			currentPath = currentPath.isEmpty() ? folder : currentPath + "/" + folder;
+			try {
+				share.mkdir(currentPath);
+			}
+			catch(SMBApiException e) {
+				if(e.getStatus()!=NtStatus.STATUS_OBJECT_NAME_COLLISION) {
+					log.info("Error in making folder "+e);
+				}
+			}
+		}
+
+		String localTempDir = GlobalConstants.local_folder_temporary;
+		if(localTempDir==null) {
+			log.info("Local folder is null");
+			return;
 		}
 		
-	}
-	
-}
+		String localFilePath = localTempDir + "\\" + fileName;
+
+		boolean downloaded = false;
+
+		long fileSize=sftp.stat(sftpFilePath).getSize();
+		int BufferSize=getBufferSize(fileSize);
+
+		try {
+			java.nio.file.Files.createDirectories(java.nio.file.Paths.get(localTempDir));
+		} catch (IOException dirEx) {
+			System.err.println("Failed to create local temp directory: " + dirEx.getMessage());
+			log.error("Failed to create local temp directory: " + dirEx.getMessage(), dirEx);
+		}
+
+		try {
+
+			System.out.println(sftpFilePath);
+
+			try (InputStream inputStream = sftp.get(sftpFilePath);
+					OutputStream localOutputStream = new FileOutputStream(localFilePath)) {
+
+				byte[] buffer = new byte[BufferSize];
+				int bytesRead;
+				while ((bytesRead = inputStream.read(buffer)) != -1) {
+					localOutputStream.write(buffer, 0, bytesRead);
+				}
+				localOutputStream.flush();
+				downloaded = true;
+				System.out.println("Downloaded to local: " + localFilePath);
+
+				    log.info(fileName + " downloaded locally to  " + localFilePath);
+
+			}
+			
+
+			if (downloaded) {
+				try (InputStream localInputStream = new FileInputStream(localFilePath);
+						com.hierynomus.smbj.share.File smbFile = share.openFile(destinationPath + "\\" + fileName,
+								EnumSet.of(AccessMask.FILE_WRITE_DATA, AccessMask.FILE_READ_ATTRIBUTES,
+										AccessMask.FILE_APPEND_DATA),
+								EnumSet.of(FileAttributes.FILE_ATTRIBUTE_NORMAL), SMB2ShareAccess.ALL,
+								SMB2CreateDisposition.FILE_OVERWRITE_IF, null);
+						OutputStream smbOutputStream = smbFile.getOutputStream()) {
+					byte[] buffer = new byte[BufferSize];
+					int bytesRead;
+					while ((bytesRead = localInputStream.read(buffer)) != -1) {
+							smbOutputStream.write(buffer, 0, bytesRead);
+					}
+					smbOutputStream.flush(); 
+
+					System.out.println("Uploaded to SMB: " + destinationPath + "\\" + fileName);
+
+					log.info("Uploaded to SMB: " + destinationPath + "\\" + fileName);
+
+				}
+			}
+
+			deleteLocal(localFilePath);
+
+		} catch (SftpException e) {
+			
+			deleteLocal(localFilePath);
+			
+			if (e.id == ChannelSftp.SSH_FX_PERMISSION_DENIED) {
+				System.out.println("Error in transfering file : " + e.getMessage());
+				log.error("Error in transfering file : " + e.getMessage());
+				throw e;
+			}
+			else {
+				log.error(e);
+				sftp=SFTPConnection.connect(connectionCode);
+				Session smb=NASConnection.connect();
+				share=(DiskShare) smb.connectShare(smbShareName);
+			}
+		} catch (IOException e) {
+			
+			deleteLocal(localFilePath);
+			
+			String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+			
+			if (msg.contains("access is denied") || msg.contains("permission denied") || msg.contains("being used")) {
+				System.out.println("Error in transfering file :  " + e.getMessage());
+				log.error("Error in transfering file : " + e.getMessage());
+				throw e;
+			}
+			else if(msg.contains("disk full") || msg.contains("no space left") || msg.contains("not enough space")|| msg.contains("status_disk_fullY")) {
+				log.error("Disk size full");
+				log.error(e);
+				emails.connectionIssue();
+			}
+			else {
+				log.error(e);
+				sftp=SFTPConnection.connect(connectionCode);
+				Session smb=NASConnection.connect();
+				share=(DiskShare) smb.connectShare(smbShareName);
+			}
+
+		} catch (Exception e) {
+			deleteLocal(localFilePath);
+			
+			log.info(e);
+			e.printStackTrace();
+			emails.connectionIssue();
+		}
+
+	}  this code i have written to transfer files from one server to another , Is there any way i can transfer files more fastly . Keeping first download in local then to smb server 
