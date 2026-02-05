@@ -1,129 +1,126 @@
-private void copyFile(ChannelSftp sftp, String connectionCode, DiskShare share, String smbShareName, String fileName, String sftpFilePath,
-			String destinationPath, int time, String department, Map<String, List<String>> missingFiles,
-			Map<String, List<String>> transferedFiles) throws SftpException, IOException{
+private void copyFile(
+        ChannelSftp sftp,
+        String connectionCode,
+        DiskShare share,
+        String smbShareName,
+        String fileName,
+        String sftpFilePath,
+        String destinationPath,
+        int time,
+        String department,
+        Map<String, List<String>> missingFiles,
+        Map<String, List<String>> transferedFiles)
+        throws SftpException, IOException {
 
-		String[] folders = destinationPath.split("/");
-		String currentPath = "";
-		for (String folder : folders) {
-			currentPath = currentPath.isEmpty() ? folder : currentPath + "/" + folder;
-			try {
-				share.mkdir(currentPath);
-			}
-			catch(SMBApiException e) {
-				if(e.getStatus()!=NtStatus.STATUS_OBJECT_NAME_COLLISION) {
-					log.info("Error in making folder "+e);
-				}
-			}
-		}
+    // =========================
+    // Create folders (same logic)
+    // =========================
+    String[] folders = destinationPath.split("/");
+    String currentPath = "";
 
-		String localTempDir = GlobalConstants.local_folder_temporary;
-		if(localTempDir==null) {
-			log.info("Local folder is null");
-			return;
-		}
-		
-		String localFilePath = localTempDir + "\\" + fileName;
+    for (String folder : folders) {
+        currentPath = currentPath.isEmpty() ? folder : currentPath + "/" + folder;
+        try {
+            share.mkdir(currentPath);
+        } catch (SMBApiException e) {
+            if (e.getStatus() != NtStatus.STATUS_OBJECT_NAME_COLLISION) {
+                log.info("Error creating folder " + e);
+            }
+        }
+    }
 
-		boolean downloaded = false;
+    // =========================
+    // STREAMING TRANSFER
+    // =========================
 
-		try {
-			java.nio.file.Files.createDirectories(java.nio.file.Paths.get(localTempDir));
-		} catch (IOException dirEx) {
-			System.err.println("Failed to create local temp directory: " + dirEx.getMessage());
-			log.error("Failed to create local temp directory: " + dirEx.getMessage(), dirEx);
-		}
+    final int BUFFER_SIZE = 4 * 1024 * 1024; // ⭐ 4MB sweet spot
 
-		try {
+    try {
 
-			System.out.println(sftpFilePath);
+        log.info("Starting streaming transfer: " + fileName);
 
-			try (InputStream inputStream = sftp.get(sftpFilePath);
-					OutputStream localOutputStream =new BufferedOutputStream(new FileOutputStream(localFilePath,false),1024*1024) ) {
+        try (
+            InputStream sftpInput = sftp.get(sftpFilePath);
 
-				byte[] buffer = new byte[1024*1024];
-				int bytesRead;
-				while ((bytesRead = inputStream.read(buffer)) != -1) {
-					localOutputStream.write(buffer, 0, bytesRead);
-				}
-				localOutputStream.flush();
-				downloaded = true;
-				System.out.println("Downloaded to local: " + localFilePath);
+            com.hierynomus.smbj.share.File smbFile =
+                share.openFile(
+                    destinationPath + "\\" + fileName,
+                    EnumSet.of(AccessMask.FILE_WRITE_DATA),
+                    EnumSet.of(FileAttributes.FILE_ATTRIBUTE_NORMAL),
+                    EnumSet.noneOf(SMB2ShareAccess.class),
+                    SMB2CreateDisposition.FILE_OVERWRITE_IF,
+                    null
+                );
 
-				    log.info(fileName + " downloaded locally to  " + localFilePath);
+            OutputStream smbOutput = smbFile.getOutputStream()
+        ) {
 
-			}
-			
+            byte[] buffer = new byte[BUFFER_SIZE];
 
-			if (downloaded) {
-				try (InputStream localInputStream = new FileInputStream(localFilePath);
-						
-						com.hierynomus.smbj.share.File smbFile = share.openFile(destinationPath + "\\" + fileName,
-								EnumSet.of(AccessMask.FILE_WRITE_DATA),
-								EnumSet.of(FileAttributes.FILE_ATTRIBUTE_NORMAL),
-								EnumSet.noneOf(SMB2ShareAccess.class),
-								SMB2CreateDisposition.FILE_OVERWRITE_IF, null);
-						
-						OutputStream smbOutputStream = smbFile.getOutputStream()) {
-					byte[] buffer = new byte[1024*1024];
-					int bytesRead;
-					while ((bytesRead = localInputStream.read(buffer)) != -1) {
-							smbOutputStream.write(buffer, 0, bytesRead);
-					}
-					smbOutputStream.flush(); 
+            int read;
 
-					System.out.println("Uploaded to SMB: " + destinationPath + "\\" + fileName);
+            long total = 0;
+            long start = System.currentTimeMillis();
 
-					log.info("Uploaded to SMB: " + destinationPath + "\\" + fileName);
+            // 🔥 DIRECT PIPE (download + upload simultaneously)
+            while ((read = sftpInput.read(buffer)) != -1) {
+                smbOutput.write(buffer, 0, read);
+                total += read;
+            }
 
-				}
-			}
+            smbOutput.flush();
 
-			deleteLocal(localFilePath);
+            long end = System.currentTimeMillis();
 
-		} catch (SftpException e) {
-			
-			deleteLocal(localFilePath);
-			
-			if (e.id == ChannelSftp.SSH_FX_PERMISSION_DENIED) {
-				System.out.println("Error in transfering file : " + e.getMessage());
-				log.error("Error in transfering file : " + e.getMessage());
-				throw e;
-			}
-			else {
-				log.error(e);
-				sftp=SFTPConnection.connect(connectionCode);
-				Session smb=NASConnection.connect();
-				share=(DiskShare) smb.connectShare(smbShareName);
-			}
-		} catch (IOException e) {
-			
-			deleteLocal(localFilePath);
-			
-			String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
-			
-			if (msg.contains("access is denied") || msg.contains("permission denied") || msg.contains("being used")) {
-				System.out.println("Error in transfering file :  " + e.getMessage());
-				log.error("Error in transfering file : " + e.getMessage());
-				throw e;
-			}
-			else if(msg.contains("disk full") || msg.contains("no space left") || msg.contains("not enough space")|| msg.contains("status_disk_fullY")) {
-				log.error("Disk size full");
-				log.error(e);
-				emails.connectionIssue();
-			}
-			else {
-				log.error(e);
-				sftp=SFTPConnection.connect(connectionCode);
-				Session smb=NASConnection.connect();
-				share=(DiskShare) smb.connectShare(smbShareName);
-			}
+            log.info("Transferred " + fileName +
+                    " size=" + (total / (1024 * 1024)) + " MB" +
+                    " time=" + ((end - start) / 1000.0) + " sec");
 
-		} catch (Exception e) {
-			deleteLocal(localFilePath);
-			
-			log.info(e);
-			e.printStackTrace();
-			emails.connectionIssue();
-		}
+            System.out.println("Streaming completed: " + fileName);
+        }
 
-	}
+    }
+    catch (SftpException e) {
+
+        if (e.id == ChannelSftp.SSH_FX_PERMISSION_DENIED) {
+            log.error("Permission denied: " + e.getMessage());
+            throw e;
+        }
+        else {
+            log.error(e);
+            sftp = SFTPConnection.connect(connectionCode);
+            Session smb = NASConnection.connect();
+            share = (DiskShare) smb.connectShare(smbShareName);
+        }
+
+    }
+    catch (IOException e) {
+
+        String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+
+        if (msg.contains("access is denied")
+                || msg.contains("permission denied")
+                || msg.contains("being used")) {
+
+            log.error("Transfer failed: " + e.getMessage());
+            throw e;
+        }
+        else if (msg.contains("disk full")
+                || msg.contains("no space left")
+                || msg.contains("not enough space")) {
+
+            log.error("Disk full");
+            emails.connectionIssue();
+        }
+        else {
+            log.error(e);
+            sftp = SFTPConnection.connect(connectionCode);
+            Session smb = NASConnection.connect();
+            share = (DiskShare) smb.connectShare(smbShareName);
+        }
+    }
+    catch (Exception e) {
+        log.error(e);
+        emails.connectionIssue();
+    }
+}
