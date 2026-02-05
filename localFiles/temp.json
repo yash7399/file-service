@@ -1,126 +1,774 @@
-private void copyFile(
-        ChannelSftp sftp,
-        String connectionCode,
-        DiskShare share,
-        String smbShareName,
-        String fileName,
-        String sftpFilePath,
-        String destinationPath,
-        int time,
-        String department,
-        Map<String, List<String>> missingFiles,
-        Map<String, List<String>> transferedFiles)
-        throws SftpException, IOException {
+package com.ncdex.filetransfer;
 
-    // =========================
-    // Create folders (same logic)
-    // =========================
-    String[] folders = destinationPath.split("/");
-    String currentPath = "";
+import java.io.IOException;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.concurrent.*;
 
-    for (String folder : folders) {
-        currentPath = currentPath.isEmpty() ? folder : currentPath + "/" + folder;
-        try {
-            share.mkdir(currentPath);
-        } catch (SMBApiException e) {
-            if (e.getStatus() != NtStatus.STATUS_OBJECT_NAME_COLLISION) {
-                log.info("Error creating folder " + e);
-            }
-        }
-    }
+import javax.management.RuntimeErrorException;
 
-    // =========================
-    // STREAMING TRANSFER
-    // =========================
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.stereotype.Component;
 
-    final int BUFFER_SIZE = 4 * 1024 * 1024; // ⭐ 4MB sweet spot
+import com.hierynomus.smbj.session.Session;
+import com.hierynomus.smbj.share.DiskShare;
+import com.jcraft.jsch.ChannelSftp;
+import com.ncdex.filetransfer.config.FileConfig;
+import com.ncdex.filetransfer.connections.NASConnection;
+import com.ncdex.filetransfer.connections.SFTPConnection;
+import com.ncdex.filetransfer.constants.GlobalConstants;
+import com.ncdex.filetransfer.emails.Emails;
+import com.ncdex.filetransfer.utils.Prop;
+import com.ncdex.filetransfer.utils.Trigger;
+import com.ncdex.filetransfer.utils.Utils;
 
-    try {
+@Component
+public class ApplicationRunner implements CommandLineRunner {
 
-        log.info("Starting streaming transfer: " + fileName);
+	private static final Logger log = LogManager.getLogger(ApplicationRunner.class);
 
-        try (
-            InputStream sftpInput = sftp.get(sftpFilePath);
+	private static String batchDate;
+	private static String configPath;
 
-            com.hierynomus.smbj.share.File smbFile =
-                share.openFile(
-                    destinationPath + "\\" + fileName,
-                    EnumSet.of(AccessMask.FILE_WRITE_DATA),
-                    EnumSet.of(FileAttributes.FILE_ATTRIBUTE_NORMAL),
-                    EnumSet.noneOf(SMB2ShareAccess.class),
-                    SMB2CreateDisposition.FILE_OVERWRITE_IF,
-                    null
-                );
+	@Autowired
+	Utils util;
 
-            OutputStream smbOutput = smbFile.getOutputStream()
-        ) {
+	@Autowired
+	Emails emails;
 
-            byte[] buffer = new byte[BUFFER_SIZE];
+	@Autowired
+	FileTransferService File_Transfer_Test;
 
-            int read;
+	private final static ConcurrentMap<String, List<String>> missingFiles = new ConcurrentHashMap<>();
 
-            long total = 0;
-            long start = System.currentTimeMillis();
+	private final static ConcurrentMap<String, List<String>> transferedFiles = new ConcurrentHashMap<>();
 
-            // 🔥 DIRECT PIPE (download + upload simultaneously)
-            while ((read = sftpInput.read(buffer)) != -1) {
-                smbOutput.write(buffer, 0, read);
-                total += read;
-            }
+	private static List<String> departments = new ArrayList();
 
-            smbOutput.flush();
+	public static String getBatchDate() {
+		return batchDate;
+	}
+	
+	public static ConcurrentMap<String, List<String>> getMissingFiles() {
+		return missingFiles;
+	}
+	
+	public static ConcurrentMap<String, List<String>> getTransferedFiles() {
+		return transferedFiles;
+	}
+	
+	public static List<String> getDepartments() {
+		return departments;
+	}
 
-            long end = System.currentTimeMillis();
+//	@Override
+//	public void run(String... args) throws Exception {
+//		this.batchDate = args[0];
+//		
+//		String connectionCode=args[1];
+//		
+//		this.configPath=args[2];
+//		
+//		Prop.init(configPath);
+//		Properties prop=Prop.getProp();
+//		
+//		Path path = Paths.get(prop.getProperty("path.log4j2"));
+//		
+//		if (!Files.exists(path)) {
+//			throw new RuntimeErrorException(null, "Log4j2.xml file does not exists " + path);
+//		}
+//		LoggerContext context = (LoggerContext) LogManager.getContext(false);
+//		
+//		URI configUri = Path.of(prop.getProperty("path.log4j2")).toUri();
+//		
+//		context.setConfigLocation(configUri);
+//		departments.add("Enforcement");
+//		
+//		emails.connectionIssue();
+//		
+//		
+//	}
+	
+	
+	
+	
 
-            log.info("Transferred " + fileName +
-                    " size=" + (total / (1024 * 1024)) + " MB" +
-                    " time=" + ((end - start) / 1000.0) + " sec");
 
-            System.out.println("Streaming completed: " + fileName);
-        }
+	@Override
+	public void run(String... args) {
+		
+		if(args.length<3) {
+			System.exit(1);
+		}
+		
+		this.batchDate = args[0];
+		
+		String connectionCode=args[1];
+		
+		this.configPath=args[2];
+		
+		
+		Prop.init(configPath);
+		Properties prop=Prop.getProp();
+		
+		Path path = Paths.get(prop.getProperty("path.log4j2"));
+		
+		if (!Files.exists(path)) {
+			throw new RuntimeErrorException(null, "Log4j2.xml file does not exists " + path);
+		}
+		LoggerContext context = (LoggerContext) LogManager.getContext(false);
+		
+		URI configUri = Path.of(prop.getProperty("path.log4j2")).toUri();
+		
+		context.setConfigLocation(configUri);
+		
+		
+		
 
-    }
-    catch (SftpException e) {
+		log.info("*********** APPLICATION STARTED ***********");
+		System.out.println("*********** APPLICATION STARTED ***********");
+		
+		int noOfThreads;
+		if(GlobalConstants.no_of_threads==0) {
+			noOfThreads=1;
+			log.info("Give no of threads by default taking 1");
+		}
+		else {
+			noOfThreads=GlobalConstants.no_of_threads;
+		}
+		ExecutorService threadPool = Executors.newFixedThreadPool(noOfThreads);
 
-        if (e.id == ChannelSftp.SSH_FX_PERMISSION_DENIED) {
-            log.error("Permission denied: " + e.getMessage());
-            throw e;
-        }
-        else {
-            log.error(e);
-            sftp = SFTPConnection.connect(connectionCode);
-            Session smb = NASConnection.connect();
-            share = (DiskShare) smb.connectShare(smbShareName);
-        }
+		try {
+			
+			Map<String,Map<String, List<FileConfig>>> departmentFiles = util.getMap();
+			
+			for (Map.Entry<String, Map<String, List<FileConfig>>> entry : departmentFiles.entrySet()) {
+				departments.add(entry.getKey());
+			}
+			
+			for (Map.Entry<String, Map<String, List<FileConfig>>> entry : departmentFiles.entrySet()) {
+				
+				String department = entry.getKey();
+				Map<String, List<FileConfig>> records = entry.getValue();
+				
+				threadPool.submit(() -> processDepartment(connectionCode , department, records, args));
+				
+			}
+			
+			threadPool.shutdown();
 
-    }
-    catch (IOException e) {
+			while (!threadPool.awaitTermination(5, TimeUnit.MINUTES)) {
+				log.info("Waiting for thread for ending task");
+			}
+			
+			log.info("*********** APPLICATION FINISHED ***********");
 
-        String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+			System.exit(1);
 
-        if (msg.contains("access is denied")
-                || msg.contains("permission denied")
-                || msg.contains("being used")) {
+		} catch (Exception e) {
 
-            log.error("Transfer failed: " + e.getMessage());
-            throw e;
-        }
-        else if (msg.contains("disk full")
-                || msg.contains("no space left")
-                || msg.contains("not enough space")) {
+			System.err.println(" UNEXPECTED ERROR: " + e.getMessage());
+			log.error("Unexpected error", e);
 
-            log.error("Disk full");
-            emails.connectionIssue();
-        }
-        else {
-            log.error(e);
-            sftp = SFTPConnection.connect(connectionCode);
-            Session smb = NASConnection.connect();
-            share = (DiskShare) smb.connectShare(smbShareName);
-        }
-    }
-    catch (Exception e) {
-        log.error(e);
-        emails.connectionIssue();
-    }
+			emails.connectionIssue();
+			System.exit(1);
+		}
+	}
+
+	private void processDepartment(String connectionCode,String department, Map<String, List<FileConfig>> connections, String... args) {
+		
+		Properties prop=Prop.getProp();
+		
+		
+		for(Map.Entry<String, List<FileConfig>> entry:connections.entrySet()) {
+			
+			ChannelSftp sftp=null;
+			
+			Session session=null;
+			DiskShare share = null;
+			
+			if(connectionCode.equals("00")  || connectionCode.equals(entry.getKey())) {
+
+				 sftp = SFTPConnection.connect(entry.getKey());
+			}
+			else {
+				return;
+			}
+			session = NASConnection.connect();
+			
+			log.info("Department execution started:" + department);
+			System.out.println("Department execution started:" + department);
+			
+			try {
+				share = (DiskShare) session.connectShare(entry.getValue().get(0).getShare());
+			} catch (Exception e) {
+				System.out.println("Share " + entry.getValue().get(0).getShare() + " is not connected");
+				log.info("Share " + entry.getValue().get(0).getShare() + " is not connected");
+				emails.connectionIssue();
+			}
+			
+			for (FileConfig record : entry.getValue()) {
+				
+				String fileName = util.getFileNameWithDate(record.getFilename(), record.getTime(), args[0]);
+				
+				if(fileName==record.getFilename()) {
+					log.info("Cannot update Date in file name ");
+					continue;
+				}
+				System.out.println("Transfering file "+fileName);
+				log.info("Transfering file "+fileName);
+				try {
+					File_Transfer_Test.transfer(sftp,entry.getKey(), share, fileName, record.getShare(), record.getSource(),
+							record.getDestination(), record.getTime(), department, missingFiles, transferedFiles);
+					
+				} catch (Exception e) {
+					
+					log.error("File transfer failed for {} in department {}", fileName, department, e);
+				}
+			}
+			String triggerFolder = prop.getProperty("trigger.folder." + department);
+			
+			try {
+				if(triggerFolder!=null) {
+					Trigger.makeTriggerFile(share, triggerFolder,entry.getKey());
+					System.out.println("Sucessfully created trigger file for " + department);
+					log.info("Sucessfully created trigger file for " + department);
+				}
+				else {
+					log.info("Trigger folder is null. Cannot create trigger file ");
+				}
+			} catch (Exception e) {
+				System.out.println("Cannot create trigger file for department " + department);
+				log.info("Cannot create trigger file for department " + department);
+				e.printStackTrace();
+			}
+			finally {
+				try {
+					share.close();
+					session.close();
+					sftp.disconnect();
+					log.info("Every session is closed");
+				} catch (IOException e) {
+					log.error("Error while closing sessions");
+				}
+			}
+		}
+		emails.filesNotFound(missingFiles, transferedFiles, department,false);
+
+	}
+}package com.ncdex.filetransfer.connections;
+
+//import com.example.sft.util.FatalShutdownHandler;
+import com.hierynomus.smbj.SMBClient;
+import com.hierynomus.smbj.SmbConfig;
+import com.hierynomus.smbj.auth.AuthenticationContext;
+import com.hierynomus.smbj.connection.Connection;
+import com.hierynomus.smbj.session.Session;
+import com.ncdex.filetransfer.constants.GlobalConstants;
+import com.ncdex.filetransfer.emails.Emails;
+
+import java.util.Properties;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.stereotype.Component;
+
+@Component
+public class NASConnection {
+
+	static Emails emails;
+
+	public NASConnection(Emails emails) {
+		NASConnection.emails = emails;
+	}
+
+	 
+	private static final Logger log = LogManager.getLogger(NASConnection.class);
+
+	public static Session connect() {
+		System.out.println("Here");
+		SMBClient client;
+		
+		SmbConfig config = SmbConfig.builder()
+				.withWriteBufferSize(8*1024 * 1024)
+				.withReadBufferSize(8*1024 * 1024)
+				.withTimeout(30, TimeUnit.MINUTES)
+				.withSoTimeout(30, TimeUnit.MINUTES)
+				.build();
+		client = new SMBClient(config);
+
+		try {
+
+			Connection connection = client.connect(GlobalConstants.dcHost);
+
+			AuthenticationContext auth = new AuthenticationContext(GlobalConstants.dcUser,
+					GlobalConstants.dcPass.toCharArray(), "");
+
+			Session session = connection.authenticate(auth);
+
+			System.out.println("Connected to DC NAS successfully!");
+			log.info("Connected to DC NAS successfully!");
+
+			return session;
+
+		} catch (Exception e) {
+			System.out.println("DC connection failed");
+			e.printStackTrace();
+			log.info("DC connection failed");
+			System.out.println("Trying to connect with DR");
+			log.info("Trying to connect with DR");
+			try {
+				Connection connection = client.connect(GlobalConstants.drHost);
+
+				AuthenticationContext auth = new AuthenticationContext(GlobalConstants.drUser,
+						GlobalConstants.drPass.toCharArray(), "");
+
+				Session session = connection.authenticate(auth);
+				System.out.println("Connected to DR NAS successfully!");
+				log.info("Connected to DR NAS successfully!");
+
+				return session;
+			}
+
+			catch (Exception ex) {
+				log.error("Unable to connect with NAS server" + e.getMessage());
+				log.error(e);
+				System.out.println("Unable to connect with NAS server");
+				emails.connectionIssue();
+			}
+		}
+		return null;
+
+	}
+
+}package com.ncdex.filetransfer.connections;
+
+import java.util.Properties;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import com.jcraft.jsch.Channel;
+import com.jcraft.jsch.ChannelSftp;
+import com.jcraft.jsch.JSch;
+import com.jcraft.jsch.Session;
+import com.ncdex.filetransfer.emails.Emails;
+import com.ncdex.filetransfer.utils.Prop;
+
+@Component
+public class SFTPConnection {
+
+	private static final Logger log = LogManager.getLogger(SFTPConnection.class);
+
+	static Properties prop = null;
+
+	static Emails emails;
+
+	public SFTPConnection(Emails emails) {
+		SFTPConnection.emails = emails;
+	}
+
+	public static ChannelSftp connect(String serverId) {
+		try {
+			
+			Session session = null;
+			ChannelSftp channel = null;
+
+			JSch jsch = new JSch();
+
+			jsch.addIdentity(getProperty(serverId + ".privateKey"));
+
+			session = jsch.getSession(getProperty(serverId + ".user"), getProperty(serverId + ".ip"),
+					Integer.parseInt(getProperty(serverId + ".port")));
+
+			session.setServerAliveInterval(60_000);
+			session.setServerAliveCountMax(5);
+
+			Properties cfg = new Properties();
+			cfg.put("StrictHostKeyChecking", "no");
+			cfg.put("compression.s2c", "none");
+			cfg.put("compression.c2s", "none");
+			cfg.put("max_input_buffer_size", "262144");
+			session.setConfig(cfg);
+
+			
+
+			session.connect();
+
+			channel = (ChannelSftp) session.openChannel("sftp");
+
+			channel.connect();
+
+			channel.setBulkRequests(128);
+
+			System.out.println("NSE connected successfully ");
+			log.info("NSE connected successfully ");
+
+			return channel;
+		} catch (Exception e) {
+			System.out.println("here");
+			System.out.println("here");
+			log.error("Unable to connect with NSE server " + e.getMessage());
+			log.error(e);
+			System.out.println("here 2");
+			emails.connectionIssue();
+		}
+		return null;
+
+	}
+
+	static public String getProperty(String propName) {
+		try {
+
+			if (prop == null) {
+				prop = Prop.getProp();
+			}
+			return prop.getProperty(propName);
+		} catch (Exception e) {
+			log.error(e);
+		}
+		return propName;
+	}
+}
+package com.ncdex.filetransfer;
+
+import java.io.BufferedOutputStream;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Vector;
+import java.util.regex.Pattern;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import com.hierynomus.msdtyp.AccessMask;
+import com.hierynomus.mserref.NtStatus;
+import com.hierynomus.msfscc.FileAttributes;
+import com.hierynomus.mssmb2.SMB2CreateDisposition;
+import com.hierynomus.mssmb2.SMB2ShareAccess;
+import com.hierynomus.mssmb2.SMBApiException;
+import com.hierynomus.smbj.session.Session;
+import com.hierynomus.smbj.share.DiskShare;
+import com.jcraft.jsch.ChannelSftp;
+import com.jcraft.jsch.SftpException;
+import com.ncdex.filetransfer.connections.NASConnection;
+import com.ncdex.filetransfer.connections.SFTPConnection;
+import com.ncdex.filetransfer.constants.GlobalConstants;
+import com.ncdex.filetransfer.emails.Emails;
+
+@Component
+public class FileTransferService {
+
+	@Autowired
+	Emails emails;
+
+	private static final Logger log = LogManager.getLogger(FileTransferService.class);
+
+	public void transfer(ChannelSftp sftp, String connectionCode, DiskShare share, String fileName, String smbShareName, String sourcePath,
+			String destinationPath, int time, String department, Map<String, List<String>> missingFiles,
+			Map<String, List<String>> transferedFiles) throws Exception {
+		
+		try {
+			sftp.stat(sourcePath);
+		}
+		catch(Exception e) {
+			missingFiles.computeIfAbsent(department, k -> new ArrayList<>()).add(fileName);
+			System.out.println("Missing or failed to transfer " + fileName);
+			log.info("Missing or failed to transfer " + fileName);
+			return;
+		}
+
+		if (fileName.contains("N.")) {
+			transferMultipleFiles(sftp,connectionCode, share,smbShareName, fileName, sourcePath, destinationPath, time, department, missingFiles,
+					transferedFiles);
+		} else {
+			transferSingleFile(sftp,connectionCode, share,smbShareName, fileName, sourcePath, destinationPath, time, department, missingFiles,
+					transferedFiles);
+		}
+	}
+
+	private void transferSingleFile(ChannelSftp sftp, String connectionCode, DiskShare share, String smbShareName, String fileName, String sourcePath,
+			String destinationPath, int time, String department, Map<String, List<String>> missingFiles,
+			Map<String, List<String>> transferedFiles) {
+
+		String sftpFilePath = sourcePath + "/" + fileName;
+		
+
+		try {
+			sftp.stat(sftpFilePath);
+			try {
+				copyFile(sftp,connectionCode, share,smbShareName, fileName, sftpFilePath, destinationPath, time, department, missingFiles,
+						transferedFiles);
+			} catch (IOException e) {
+				throw e;
+			}
+			System.out.println(fileName + " transferred successfully");
+			log.info(fileName + " Transfered sucessfully");
+			transferedFiles.computeIfAbsent(department, k -> new ArrayList<>()).add(fileName);
+		}
+
+		catch (Exception e) {
+			missingFiles.computeIfAbsent(department, k -> new ArrayList<>()).add(fileName);
+			System.out.println("Missing or failed to transfer " + fileName);
+			log.info("Missing or failed to transfer " + fileName);
+		}
+
+	}
+
+	private void transferMultipleFiles(ChannelSftp sftp, String connectionCode, DiskShare share, String smbShareName, String templateFileName, String sourcePath,
+			String destinationPath, int time, String department, Map<String, List<String>> missingFiles,
+			Map<String, List<String>> transferedFiles) throws SftpException {
+		
+		try {
+			
+			String basename = templateFileName.substring(0, templateFileName.lastIndexOf('_'));
+			
+			String extension = templateFileName.substring(templateFileName.indexOf('.') + 1);
+
+			Pattern pattern = buildPattern(templateFileName);
+	
+			if (pattern == null) {
+				return;
+			}
+			
+			String glob = basename + "_*" + "." + extension;
+			
+			Vector<ChannelSftp.LsEntry> files = sftp.ls(sourcePath + "/" + glob);
+			
+			int count = 0;
+			
+			for (ChannelSftp.LsEntry entry : files) {
+				
+				if (entry.getAttrs().isDir()) {
+					continue;
+				}
+				
+				String currentFileName = entry.getFilename();
+				
+				if (pattern.matcher(currentFileName).matches()) {
+					try {
+						
+						String sftpFilePath = sourcePath + "/" + currentFileName;
+						copyFile(sftp,connectionCode, share,smbShareName, currentFileName, sftpFilePath, destinationPath, time, department,
+								missingFiles, transferedFiles);
+						
+						System.out.println(currentFileName + " transferred successfully");
+						log.info(currentFileName + " Transfered sucessfully");
+						transferedFiles.computeIfAbsent(department, k -> new ArrayList<>()).add(currentFileName);
+						count++;
+					} catch (Exception e) {
+						System.out.println("Failed to transfer file"+currentFileName+" due to " + e.getMessage());
+						log.info("Failed to transfer file"+currentFileName+" due to " + e.getMessage());
+					}
+				}
+			}
+			
+			if (count == 0) {
+				missingFiles.computeIfAbsent(department, k -> new ArrayList<>()).add(templateFileName);
+				log.info(templateFileName + " added to missing files ");
+			}
+		}
+		catch(SftpException e) {
+			if (e.id == ChannelSftp.SSH_FX_PERMISSION_DENIED) {
+				System.out.println("Error in transfering file : " + e.getMessage());
+				log.error("Error in transfering file : " + e.getMessage());
+				missingFiles.computeIfAbsent(department, k -> new ArrayList<>()).add(templateFileName);
+				throw e;
+			} else {
+				log.error(e);
+				emails.connectionIssue();
+			}
+		}
+	}
+
+	private void copyFile(ChannelSftp sftp, String connectionCode, DiskShare share, String smbShareName, String fileName, String sftpFilePath,
+			String destinationPath, int time, String department, Map<String, List<String>> missingFiles,
+			Map<String, List<String>> transferedFiles) throws SftpException, IOException{
+
+		String[] folders = destinationPath.split("/");
+		String currentPath = "";
+		for (String folder : folders) {
+			currentPath = currentPath.isEmpty() ? folder : currentPath + "/" + folder;
+			try {
+				share.mkdir(currentPath);
+			}
+			catch(SMBApiException e) {
+				if(e.getStatus()!=NtStatus.STATUS_OBJECT_NAME_COLLISION) {
+					log.info("Error in making folder "+e);
+				}
+			}
+		}
+
+		String localTempDir = GlobalConstants.local_folder_temporary;
+		if(localTempDir==null) {
+			log.info("Local folder is null");
+			return;
+		}
+		
+		String localFilePath = localTempDir + "\\" + fileName;
+
+		boolean downloaded = false;
+
+		try {
+			java.nio.file.Files.createDirectories(java.nio.file.Paths.get(localTempDir));
+		} catch (IOException dirEx) {
+			System.err.println("Failed to create local temp directory: " + dirEx.getMessage());
+			log.error("Failed to create local temp directory: " + dirEx.getMessage(), dirEx);
+		}
+
+		try {
+
+			System.out.println(sftpFilePath);
+
+			try (InputStream inputStream = sftp.get(sftpFilePath);
+					OutputStream localOutputStream =new BufferedOutputStream(new FileOutputStream(localFilePath,false),1024*1024) ) {
+
+				byte[] buffer = new byte[8*1024*1024];
+				int bytesRead;
+				while ((bytesRead = inputStream.read(buffer)) != -1) {
+					localOutputStream.write(buffer, 0, bytesRead);
+				}
+				localOutputStream.flush();
+				downloaded = true;
+				System.out.println("Downloaded to local: " + localFilePath);
+
+				    log.info(fileName + " downloaded locally to  " + localFilePath);
+
+			}
+			
+
+			if (downloaded) {
+				try (InputStream localInputStream = new FileInputStream(localFilePath);
+						
+						com.hierynomus.smbj.share.File smbFile = share.openFile(destinationPath + "\\" + fileName,
+								EnumSet.of(AccessMask.FILE_WRITE_DATA),
+								EnumSet.of(FileAttributes.FILE_ATTRIBUTE_NORMAL),
+								EnumSet.noneOf(SMB2ShareAccess.class),
+								SMB2CreateDisposition.FILE_OVERWRITE_IF, null);
+						
+						OutputStream smbOutputStream = smbFile.getOutputStream()) {
+					byte[] buffer = new byte[8*1024*1024];
+					int bytesRead;
+					while ((bytesRead = localInputStream.read(buffer)) != -1) {
+							smbOutputStream.write(buffer, 0, bytesRead);
+					}
+					smbOutputStream.flush(); 
+
+					System.out.println("Uploaded to SMB: " + destinationPath + "\\" + fileName);
+
+					log.info("Uploaded to SMB: " + destinationPath + "\\" + fileName);
+
+				}
+			}
+
+			deleteLocal(localFilePath);
+
+		} catch (SftpException e) {
+			
+			deleteLocal(localFilePath);
+			
+			if (e.id == ChannelSftp.SSH_FX_PERMISSION_DENIED) {
+				System.out.println("Error in transfering file : " + e.getMessage());
+				log.error("Error in transfering file : " + e.getMessage());
+				throw e;
+			}
+			else {
+				log.error(e);
+				sftp=SFTPConnection.connect(connectionCode);
+				Session smb=NASConnection.connect();
+				share=(DiskShare) smb.connectShare(smbShareName);
+			}
+		} catch (IOException e) {
+			
+			deleteLocal(localFilePath);
+			
+			String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+			
+			if (msg.contains("access is denied") || msg.contains("permission denied") || msg.contains("being used")) {
+				System.out.println("Error in transfering file :  " + e.getMessage());
+				log.error("Error in transfering file : " + e.getMessage());
+				throw e;
+			}
+			else if(msg.contains("disk full") || msg.contains("no space left") || msg.contains("not enough space")|| msg.contains("status_disk_fullY")) {
+				log.error("Disk size full");
+				log.error(e);
+				emails.connectionIssue();
+			}
+			else {
+				log.error(e);
+				sftp=SFTPConnection.connect(connectionCode);
+				Session smb=NASConnection.connect();
+				share=(DiskShare) smb.connectShare(smbShareName);
+			}
+
+		} catch (Exception e) {
+			deleteLocal(localFilePath);
+			
+			log.info(e);
+			e.printStackTrace();
+			emails.connectionIssue();
+		}
+
+	}
+
+	private Pattern buildPattern(String fileName) {
+		
+		
+		String extension = fileName.substring(fileName.indexOf('.') + 1);
+		int digitCount = fileName.indexOf('.') - fileName.lastIndexOf('_') - 1;
+
+		// Only allow N or NN
+		if (digitCount > 2 || digitCount <= 0) {
+			return null;
+		}
+
+		String digitRegex = "[0-9]{" + digitCount + "}";
+		String baseName = fileName.substring(0, fileName.lastIndexOf('_'));
+		
+
+		return Pattern.compile("^" + baseName + "_" + digitRegex + "\\." + extension + "$");
+	}
+	
+	public static int getBufferSize(long fileSize) {
+	    if (fileSize >= 2L * 1024 * 1024 * 1024) return 2 * 1024 * 1024; 
+	    if (fileSize >= 512L * 1024 * 1024)     return 1 * 1024 * 1024; 
+	    if (fileSize >= 128L * 1024 * 1024)     return 512 * 1024 * 1024;
+	    return 254 * 1024;
+	}
+	
+	public static void deleteLocal(String localFilePath) {
+		try {
+			java.nio.file.Path p = java.nio.file.Paths.get(localFilePath);
+			java.nio.file.Files.deleteIfExists(p);
+			System.out.println("Deleted local temp file: " + localFilePath);
+			log.info("Deleted local temp file: " + localFilePath);
+
+		} catch (Exception e) {
+			System.err.println("Failed to delete local temp file: " + e.getMessage());
+			log.error("Failed to delete local temp file: " + e.getMessage());
+			log.error(e);
+		}
+	}
 }
