@@ -1,66 +1,40 @@
-private void copyFile(
-        ChannelSftp sftp,
-        String connectionCode,
-        DiskShare share,
-        String smbShareName,
-        String fileName,
-        String sftpFilePath,
-        String destinationPath,
-        int time,
-        String department,
-        Map<String, List<String>> missingFiles,
-        Map<String, List<String>> transferedFiles
-) throws IOException, SftpException {
+ExecutorService filePool = Executors.newFixedThreadPool(3); // tune 3–5
 
-    // ===== create SMB folders if not exists =====
-    String[] folders = destinationPath.split("/");
-    String currentPath = "";
+List<Future<?>> futures = new ArrayList<>();
 
-    for (String folder : folders) {
-        currentPath = currentPath.isEmpty() ? folder : currentPath + "/" + folder;
+for (FileConfig record : entry.getValue()) {
+
+    futures.add(filePool.submit(() -> {
+
+        String fileName = util.getFileNameWithDate(
+                record.getFilename(),
+                record.getTime(),
+                args[0]
+        );
+
         try {
-            share.mkdir(currentPath);
-        } catch (SMBApiException e) {
-            if (e.getStatus() != NtStatus.STATUS_OBJECT_NAME_COLLISION) {
-                log.warn("Folder create issue {}", currentPath, e);
-            }
+            File_Transfer_Test.transfer(
+                    sftp,
+                    entry.getKey(),
+                    share,
+                    fileName,
+                    record.getShare(),
+                    record.getSource(),
+                    record.getDestination(),
+                    record.getTime(),
+                    department,
+                    missingFiles,
+                    transferedFiles
+            );
+
+        } catch (Exception e) {
+            log.error("Transfer failed {}", fileName, e);
         }
-    }
-
-    String smbFullPath = destinationPath + "\\" + fileName;
-
-    log.info("Streaming {} directly SFTP → SMB", fileName);
-
-    long start = System.currentTimeMillis();
-
-    // ===== DIRECT STREAMING (NO LOCAL FILE) =====
-    try (InputStream sftpInput = new BufferedInputStream(sftp.get(sftpFilePath), 8 * 1024 * 1024);
-
-         com.hierynomus.smbj.share.File smbFile =
-                 share.openFile(
-                         smbFullPath,
-                         EnumSet.of(AccessMask.FILE_WRITE_DATA),
-                         EnumSet.of(FileAttributes.FILE_ATTRIBUTE_NORMAL),
-                         EnumSet.noneOf(SMB2ShareAccess.class),
-                         SMB2CreateDisposition.FILE_OVERWRITE_IF,
-                         null);
-
-         OutputStream smbOutput = new BufferedOutputStream(smbFile.getOutputStream(), 8 * 1024 * 1024)
-    ) {
-
-        byte[] buffer = new byte[8 * 1024 * 1024]; // 8MB
-        int read;
-
-        while ((read = sftpInput.read(buffer)) != -1) {
-            smbOutput.write(buffer, 0, read);
-        }
-
-        smbOutput.flush();
-    }
-
-    long end = System.currentTimeMillis();
-
-    log.info("{} transferred in {} sec",
-            fileName,
-            (end - start) / 1000.0);
+    }));
 }
+
+for (Future<?> f : futures) {
+    f.get();
+}
+
+filePool.shutdown();
