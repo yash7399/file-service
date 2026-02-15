@@ -1,14 +1,15 @@
-package com.example.sft;
+package com.ncdex.filetransfer.connections;
 
-import com.example.sft.constants.GlobalConstants;
 //import com.example.sft.util.FatalShutdownHandler;
 import com.hierynomus.smbj.SMBClient;
 import com.hierynomus.smbj.SmbConfig;
 import com.hierynomus.smbj.auth.AuthenticationContext;
 import com.hierynomus.smbj.connection.Connection;
 import com.hierynomus.smbj.session.Session;
+import com.ncdex.filetransfer.constants.GlobalConstants;
+import com.ncdex.filetransfer.emails.Emails;
 
-
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.logging.log4j.LogManager;
@@ -18,25 +19,29 @@ import org.springframework.stereotype.Component;
 @Component
 public class NASConnection {
 
-	static SMBClient client;
-	
 	static Emails emails;
 
 	public NASConnection(Emails emails) {
-		NASConnection.emails=emails;
+		NASConnection.emails = emails;
 	}
-	
-	static {
-		SmbConfig config = SmbConfig.builder().withTimeout(60, TimeUnit.MINUTES).withSoTimeout(60, TimeUnit.MINUTES).build();
-		client= new SMBClient(config);
-	}
-	
+
+	 
 	private static final Logger log = LogManager.getLogger(NASConnection.class);
 
-	public static Session connect()  {
+	public static Session connect() {
+		System.out.println("Here");
+		SMBClient client;
 		
+		SmbConfig config = SmbConfig.builder()
+				.withWriteBufferSize(1024*1024)
+				.withReadBufferSize(1024*1024)
+				.withTimeout(2, TimeUnit.MINUTES)
+				.withSoTimeout(2, TimeUnit.MINUTES)
+				.build();
+		client = new SMBClient(config);
+
 		try {
-			
+
 			Connection connection = client.connect(GlobalConstants.dcHost);
 
 			AuthenticationContext auth = new AuthenticationContext(GlobalConstants.dcUser,
@@ -68,8 +73,8 @@ public class NASConnection {
 				return session;
 			}
 
-			catch(Exception ex) {
-				log.error("Unable to connect with NAS server"+e.getMessage());
+			catch (Exception ex) {
+				log.error("Unable to connect with NAS server" + e.getMessage());
 				log.error(e);
 				System.out.println("Unable to connect with NAS server");
 				emails.connectionIssue();
